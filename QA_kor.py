@@ -13,7 +13,7 @@ from sentence_transformers import SentenceTransformer # SentenceTransformer Vers
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import argparse, sys
-
+from torch.utils.data import DataLoader
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default="EleutherAI/polyglot-ko-12.8b",
@@ -43,16 +43,18 @@ if not os.path.exists('experiment'):
     os.mkdir('experiment')
 output_dir =  f'experiment/{model_checkpoint}_{r_}'
 
-tokenizer = AutoTokenizer.from_pretrained(model_checkpoint, padding_side='left')
 data = pd.read_csv('open/train.csv')
 
+tokenizer = AutoTokenizer.from_pretrained(model_checkpoint, add_special_tokens=True)
 def preprocess_function(data_):
     formatted_data = []  
     for _, row in tqdm(data_.iterrows()):
         for q_col in ['질문_1', '질문_2']:
             for a_col in ['답변_1', '답변_2', '답변_3', '답변_4', '답변_5']:
                 input_text = row[q_col] + tokenizer.eos_token + row[a_col]
-                input_ids = tokenizer.encode(input_text, return_tensors='pt', padding=True, truncation=True, return_token_type_ids=False)
+                input_ids = tokenizer.encode(input_text, return_tensors='pt', max_length=130, padding="max_length", truncation=True, return_token_type_ids=False)
+                input_ids = input_ids.to(device)
+                input_ids = input_ids.squeeze(0)
                 formatted_data.append(input_ids)
     return formatted_data
     
@@ -61,7 +63,9 @@ def preprocess_function_val(data_):
     for _, row in tqdm(data_.iterrows()):
         for q_col in ['질문_1', '질문_2']:
             for a_col in ['답변_1', '답변_2', '답변_3', '답변_4', '답변_5']:
-                input_ids = tokenizer.encode(row[q_col]+ tokenizer.eos_token, return_tensors='pt', padding=True, truncation=True, return_token_type_ids=False)
+                input_ids = tokenizer.encode(row[q_col]+ tokenizer.eos_token, return_tensors='pt', max_length=130, padding="max_length", truncation=True, return_token_type_ids=False)
+                input_ids = input_ids.to(device)
+                input_ids = input_ids.squeeze(0)
                 #input_ids = torch.tensor(input_ids)
                 formatted_data.append([input_ids, row[a_col]])
     return formatted_data
@@ -69,7 +73,9 @@ def preprocess_function_val(data_):
 data_train, data_val = train_test_split(data, test_size = 0.2, shuffle=True) 
 tokenized_data_train = preprocess_function(data_train)
 tokenized_data_val = preprocess_function_val(data_val)
-        
+
+train_dataloader = DataLoader(dataset=tokenized_data_train, batch_size=args.batch_size, shuffle=True)
+val_dataloader = DataLoader(dataset=tokenized_data_val,batch_size=1, shuffle=False)            
 '''            
 for _, row in tqdm(data.iterrows()):
     for q_col in ['질문_1', '질문_2', 'category']:
@@ -121,10 +127,8 @@ def compute_metrics(eval_pred, gt):
 ##train process              
 for epoch in range(num_epochs):
     total_loss = 0
-    progress_bar = tqdm(enumerate(tokenized_data_train), total=len(tokenized_data_train))
-    for batch_idx, batch in progress_bar:
-    
-        batch = batch.to(device)
+    progress_bar = tqdm(train_dataloader)
+    for batch_idx, batch in enumerate(progress_bar):
         outputs = model(batch, labels=batch)
         loss = outputs.loss
         loss.backward()
@@ -139,9 +143,9 @@ for epoch in range(num_epochs):
     
     ## validation
     if epoch%10 ==9:
-        progress_bar = tqdm(enumerate(tokenized_data_val), total=len(tokenized_data_val))
+        progress_bar = tqdm(val_dataloader)
         total_cossim = 0
-        for batch_idx, val in progress_bar:
+        for batch_idx, val in enumerate(progress_bar):
             test_question = val[0]
             gt = val[1]
             output_sequences = model.generate(
