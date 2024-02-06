@@ -120,7 +120,6 @@ def compute_metrics(eval_pred, gt):
     
 ##train process              
 for epoch in range(num_epochs):
-    model.train() 
     total_loss = 0
     progress_bar = tqdm(enumerate(tokenized_data_train), total=len(tokenized_data_train))
     for batch_idx, batch in progress_bar:
@@ -139,39 +138,38 @@ for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {total_loss / len(tokenized_data_train)}")
     
     ## validation
-    
-    progress_bar = tqdm(enumerate(tokenized_data_val), total=len(tokenized_data_val))
-    total_cossim = 0
-    for batch_idx, val in progress_bar:
-        test_question = val[0]
-        gt = val[1]
-        output_sequences = model.generate(
-            input_ids=test_question.to(device),
-            max_length=300,
-            temperature=0.9,
-            top_k=1,
-            top_p=0.9,
-            repetition_penalty=1.2,
-            do_sample=True,
-            num_return_sequences=1
+    if epoch%10 ==9:
+        progress_bar = tqdm(enumerate(tokenized_data_val), total=len(tokenized_data_val))
+        total_cossim = 0
+        for batch_idx, val in progress_bar:
+            test_question = val[0]
+            gt = val[1]
+            output_sequences = model.generate(
+                input_ids=test_question.to(device),
+                max_length=300,
+                temperature=0.9,
+                top_k=1,
+                top_p=0.9,
+                repetition_penalty=1.2,
+                do_sample=True,
+                num_return_sequences=1
 
-        )
-        full_text = tokenizer.decode(output_sequences[0], skip_special_tokens=False)
-        answer_start = full_text.find(tokenizer.eos_token) + len(tokenizer.eos_token)
-        answer_only = full_text[answer_start:].strip()
-        answer_only = answer_only.replace('\n', ' ')
+            )
+            full_text = tokenizer.decode(output_sequences[0], skip_special_tokens=False)
+            answer_start = full_text.find(tokenizer.eos_token) + len(tokenizer.eos_token)
+            answer_only = full_text[answer_start:].strip()
+            answer_only = answer_only.replace('\n', ' ')
         
-        cossim = compute_metrics(answer_only, gt)
-        total_cossim += cossim
+            cossim = compute_metrics(answer_only, gt)
+            total_cossim += cossim
         
 
-        progress_bar.set_description(f"Epoch {epoch+1}")
+            progress_bar.set_description(f"Epoch {epoch+1}")
+            model.train() 
         
-    avg_cossim = total_cossim / len(tokenized_data_val)
+        avg_cossim = total_cossim / len(tokenized_data_val)
 
-    print(f"Epoch {epoch+1}/{num_epochs}, Average cossim: {avg_cossim}")
-
-trainer.train()
+        print(f"Epoch {epoch+1}/{num_epochs}, Average cossim: {avg_cossim}")
 
 model.save_pretrained(output_dir)
 tokenizer.save_pretrained(output_dir)
