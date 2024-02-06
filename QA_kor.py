@@ -46,13 +46,15 @@ output_dir =  f'experiment/{model_checkpoint}_{r_}'
 data = pd.read_csv('open/train.csv')
 
 tokenizer = AutoTokenizer.from_pretrained(model_checkpoint, add_special_tokens=True)
+max_seq_length = max(max(len(tokenizer.encode(row['질문_1'] + tokenizer.eos_token + row['답변_1'])), len(tokenizer.encode(row['질문_2'] + tokenizer.eos_token + row['답변_1']))) for _, row in data.iterrows())
+
 def preprocess_function(data_):
     formatted_data = []  
     for _, row in tqdm(data_.iterrows()):
         for q_col in ['질문_1', '질문_2']:
             for a_col in ['답변_1', '답변_2', '답변_3', '답변_4', '답변_5']:
                 input_text = row[q_col] + tokenizer.eos_token + row[a_col]
-                input_ids = tokenizer.encode(input_text, return_tensors='pt', max_length=130, padding="max_length", truncation=True, return_token_type_ids=False)
+                input_ids = tokenizer.encode(input_text, return_tensors='pt', max_length=max_seq_length, padding="max_length", truncation=True, return_token_type_ids=False)
                 input_ids = input_ids.to(device)
                 input_ids = input_ids.squeeze(0)
                 formatted_data.append(input_ids)
@@ -63,7 +65,7 @@ def preprocess_function_val(data_):
     for _, row in tqdm(data_.iterrows()):
         for q_col in ['질문_1', '질문_2']:
             for a_col in ['답변_1', '답변_2', '답변_3', '답변_4', '답변_5']:
-                input_ids = tokenizer.encode(row[q_col]+ tokenizer.eos_token, return_tensors='pt', max_length=130, padding="max_length", truncation=True, return_token_type_ids=False)
+                input_ids = tokenizer.encode(row[q_col]+ tokenizer.eos_token, return_tensors='pt', max_length=max_seq_length, padding="max_length", truncation=True, return_token_type_ids=False)
                 input_ids = input_ids.to(device)
                 input_ids = input_ids.squeeze(0)
                 #input_ids = torch.tensor(input_ids)
@@ -75,7 +77,8 @@ tokenized_data_train = preprocess_function(data_train)
 tokenized_data_val = preprocess_function_val(data_val)
 
 train_dataloader = DataLoader(dataset=tokenized_data_train, batch_size=args.batch_size, shuffle=True)
-val_dataloader = DataLoader(dataset=tokenized_data_val,batch_size=1, shuffle=False)            
+#val_dataloader = DataLoader(dataset=tokenized_data_val,batch_size=1, shuffle=False)   
+val_dataloader = DataLoader(dataset=tokenized_data_val,batch_size=args.batch_size, shuffle=False)         
 '''            
 for _, row in tqdm(data.iterrows()):
     for q_col in ['질문_1', '질문_2', 'category']:
