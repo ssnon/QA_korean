@@ -60,7 +60,7 @@ def preprocess_function(data_):
                 input_text = row[q_col] + tokenizer.eos_token + row[a_col]
                 input_ids = tokenizer.encode(input_text, return_tensors='pt', max_length=max_seq_length, padding="max_length", truncation=True, return_token_type_ids=False)
                 input_ids = input_ids.to(device)
-                input_ids = input_ids.squeeze(0)
+                #input_ids = input_ids.squeeze(0)
                 formatted_data.append(input_ids)
     return formatted_data
     
@@ -69,9 +69,9 @@ def preprocess_function_val(data_):
     for _, row in tqdm(data_.iterrows()):
         for q_col in ['질문_1', '질문_2']:
             for a_col in ['답변_1', '답변_2', '답변_3', '답변_4', '답변_5']:
-                input_ids = tokenizer.encode(row[q_col]+ tokenizer.eos_token, return_tensors='pt', max_length=max_seq_length, padding="max_length", truncation=True, return_token_type_ids=False)
+                input_ids = tokenizer.encode(row[q_col]+ tokenizer.eos_token, return_tensors='pt', truncation=True, return_token_type_ids=False)
                 input_ids = input_ids.to(device)
-                input_ids = input_ids.squeeze(0)
+                #input_ids = input_ids.squeeze(0)
                 #input_ids = torch.tensor(input_ids)
                 formatted_data.append([input_ids, row[a_col]])
     return formatted_data
@@ -81,8 +81,8 @@ tokenized_data_train = preprocess_function(data_train)
 tokenized_data_val = preprocess_function_val(data_val)
 
 train_dataloader = DataLoader(dataset=tokenized_data_train, batch_size=args.batch_size, shuffle=True)
-#val_dataloader = DataLoader(dataset=tokenized_data_val,batch_size=1, shuffle=False)   
-val_dataloader = DataLoader(dataset=tokenized_data_val,batch_size=args.batch_size, shuffle=False)         
+val_dataloader = DataLoader(dataset=tokenized_data_val,batch_size=1, shuffle=False)   
+#val_dataloader = DataLoader(dataset=tokenized_data_val,batch_size=args.batch_size, shuffle=False)         
 '''            
 for _, row in tqdm(data.iterrows()):
     for q_col in ['질문_1', '질문_2', 'category']:
@@ -121,7 +121,7 @@ def compute_metrics(eval_pred, gt):
     gt_embed = embed_model.encode(gt)
     
     sample_score = cosine_similarity(gt_embed, pred_embed)
-    sample_score[sample_score<0]=0
+    #sample_score[sample_score<0]=0
     print('예측 : ', eval_pred)
     print('정답 : ', gt)
     print('Cosine Similarity Score : ', sample_score)
@@ -135,6 +135,8 @@ for epoch in range(num_epochs):
     total_loss = 0
     progress_bar = tqdm(train_dataloader)
     for batch_idx, batch in enumerate(progress_bar):
+        batch_dim, _, st_len = batch.shape
+        batch = batch.reshape(batch_dim, st_len)
         outputs = model(batch, labels=batch)
         loss = outputs.loss
         loss.backward()
@@ -154,6 +156,8 @@ for epoch in range(num_epochs):
         for batch_idx, val in enumerate(progress_bar):
             test_question = val[0]
             gt = val[1]
+            batch_dim, _, st_len = test_question.shape
+            test_question = test_question.reshape(batch_dim, st_len)
             output_sequences = model.generate(
                 input_ids=test_question.to(device),
                 max_length=300,
@@ -165,13 +169,17 @@ for epoch in range(num_epochs):
                 num_return_sequences=1
 
             )
-            full_text = tokenizer.decode(output_sequences[0], skip_special_tokens=False)
-            answer_start = full_text.find(tokenizer.eos_token) + len(tokenizer.eos_token)
-            answer_only = full_text[answer_start:].strip()
-            answer_only = answer_only.replace('\n', ' ')
+            full_text_trunk = []
+            for i in range(args.batch_size):
+                full_text = tokenizer.decode(output_sequences[i], skip_special_tokens=False)
+                answer_start = full_text.find(tokenizer.eos_token) + len(tokenizer.eos_token)
+                answer_only = full_text[answer_start:].strip()
+                answer_only = answer_only.replace('\n', ' ')
+                answer_start = answer_only.find(tokenizer.eos_token) + len(tokenizer.eos_token)
+                answer_only = answer_only[:answer_start]
         
-            cossim = compute_metrics(answer_only, gt)
-            total_cossim += cossim
+                cossim = compute_metrics(answer_only, gt[i])
+                total_cossim += cossim
         
 
             progress_bar.set_description(f"Epoch {epoch+1}")
@@ -182,7 +190,6 @@ for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}, Average cossim: {avg_cossim}")
 
 model.save_pretrained(output_dir)
-tokenizer.save_pretrained(output_dir)
 output_dir_1 = os.path.join(output_dir, "result_epoch{num_epochs}.pth")
 torch.save(model.state_dict(), output_dir_1)
 
