@@ -26,6 +26,10 @@ parser.add_argument('--rank', type=int, default=12,
                       help=' : lora rank')
 parser.add_argument('--lr', type=int, default=1e-4,
                       help=' : learning rate')
+parser.add_argument('--val_ratio', type=float, default=0.2,
+                      help=' : validation data ratio')
+parser.add_argument('--val_frequency', type=float, default=10,
+                      help=' : validation per epoch')
 
 args = parser.parse_args()
 
@@ -72,7 +76,7 @@ def preprocess_function_val(data_):
                 formatted_data.append([input_ids, row[a_col]])
     return formatted_data
         
-data_train, data_val = train_test_split(data, test_size = 0.2, shuffle=True) 
+data_train, data_val = train_test_split(data, test_size = args.val_ratio, shuffle=True) 
 tokenized_data_train = preprocess_function(data_train)
 tokenized_data_val = preprocess_function_val(data_val)
 
@@ -117,8 +121,7 @@ def compute_metrics(eval_pred, gt):
     gt_embed = embed_model.encode(gt)
     
     sample_score = cosine_similarity(gt_embed, pred_embed)
-    
-    sample_score = max(sample_score, 0)
+    sample_score[sample_score<0]=0
     print('예측 : ', eval_pred)
     print('정답 : ', gt)
     print('Cosine Similarity Score : ', sample_score)
@@ -145,7 +148,7 @@ for epoch in range(num_epochs):
     print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {total_loss / len(tokenized_data_train)}")
     
     ## validation
-    if epoch%10 ==9:
+    if epoch%args.val_frequency ==args.val_frequency-1:
         progress_bar = tqdm(val_dataloader)
         total_cossim = 0
         for batch_idx, val in enumerate(progress_bar):
