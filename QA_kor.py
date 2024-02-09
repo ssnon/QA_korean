@@ -14,11 +14,12 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import argparse, sys
 from torch.utils.data import DataLoader
+from safetensors.torch import load_file
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default="EleutherAI/polyglot-ko-12.8b",
                       help=' : load model name')
-parser.add_argument('--epoch', type=int, default=20,
+parser.add_argument('--epoch', type=int, default=100,
                       help=' : epochs')
 parser.add_argument('--batch_size', type=int, default=4,
                       help=' : batch size')
@@ -30,7 +31,9 @@ parser.add_argument('--val_ratio', type=float, default=0.2,
                       help=' : validation data ratio')
 parser.add_argument('--val_frequency', type=float, default=10,
                       help=' : validation per epoch')
-
+parser.add_argument('--load', type=bool, default=False,
+                      help=' : load trained model')
+                      
 args = parser.parse_args()
 
 
@@ -46,6 +49,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 if not os.path.exists('experiment'):
     os.mkdir('experiment')
 output_dir =  f'experiment/{model_checkpoint}_{r_}'
+if args.load == True:
+    output_dir = f'experiment/{model_checkpoint}_{r_}/load'
 
 data = pd.read_csv('open/train.csv')
 
@@ -102,6 +107,10 @@ peft_config = LoraConfig(
 model = get_peft_model(model, peft_config)
 model.print_trainable_parameters()
 optimizer = AdamW(model.parameters(), lr=lr)   
+if args.load==True:
+    checkpoint = torch.load('experiment/EleutherAI/polyglot-ko-1.3b_12/load/result_epoch20.pth')
+    model.load_state_dict(checkpoint)
+    #model = AutoModelForCausalLM.from_pretrained('experiment/EleutherAI/polyglot-ko-1.3b_12/result_epoch{num_epochs}.pth').to(device)
     
 ##model evaluate flag
 def cosine_similarity(a, b):
@@ -147,7 +156,7 @@ for epoch in range(num_epochs):
 
         progress_bar.set_description(f"Epoch {epoch+1} - Avg Loss: {total_loss / (batch_idx+1):.4f}")
 
-    print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {total_loss / len(tokenized_data_train)}")
+    print(f"Epoch {epoch+1}/{num_epochs}, Average Loss: {total_loss / len(train_dataloader)}")
     
     ## validation
     if epoch%args.val_frequency ==args.val_frequency-1:
@@ -170,27 +179,26 @@ for epoch in range(num_epochs):
 
             )
             full_text_trunk = []
-            for i in range(args.batch_size):
+            for i in range(1):
                 full_text = tokenizer.decode(output_sequences[i], skip_special_tokens=False)
                 answer_start = full_text.find(tokenizer.eos_token) + len(tokenizer.eos_token)
                 answer_only = full_text[answer_start:].strip()
                 answer_only = answer_only.replace('\n', ' ')
-                answer_start = answer_only.find(tokenizer.eos_token) + len(tokenizer.eos_token)
+                answer_start = answer_only.find(tokenizer.eos_token)
                 answer_only = answer_only[:answer_start]
         
                 cossim = compute_metrics(answer_only, gt[i])
                 total_cossim += cossim
         
 
-            progress_bar.set_description(f"Epoch {epoch+1}")
-            model.train() 
-        
-        avg_cossim = total_cossim / len(tokenized_data_val)
+        progress_bar.set_description(f"Epoch {epoch+1}")
+        model.train() 
+        avg_cossim = total_cossim / len(val_dataloader)
 
         print(f"Epoch {epoch+1}/{num_epochs}, Average cossim: {avg_cossim}")
 
 model.save_pretrained(output_dir)
-output_dir_1 = os.path.join(output_dir, "result_epoch{num_epochs}.pth")
+output_dir_1 = os.path.join(output_dir, f"result_epoch{num_epochs}.pth")
 torch.save(model.state_dict(), output_dir_1)
 
 '''
